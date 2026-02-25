@@ -6,87 +6,116 @@ import lemminflect
 from lemminflect import getInflection
 from tqdm import tqdm
 import pandas as pd
+from analyze_complex_word_identification import ComplexWordAnalyzer
 
 class LexicalSimplifier:
     def __init__(self, threshold=4.5, similarity_cutoff=0.35):
-        # set threshold for complexity
-        # set similarity cutoff for semantic similarity
-        # Load pre-trained models (Zero-Dataset approach)
         self.nlp = spacy.load("en_core_web_sm")
-        self.sim_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.sim_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.threshold = threshold
         self.similarity_cutoff = similarity_cutoff
-        
+        self.analyzer = ComplexWordAnalyzer(threshold=threshold, min_word_length=4)  # FIX
+
     def _get_wordnet_pos(self, spacy_pos):
-        """Map spaCy POS tags to WordNet POS tags."""
         pos_map = {"NOUN": wn.NOUN, "VERB": wn.VERB, "ADJ": wn.ADJ, "ADV": wn.ADV}
         return pos_map.get(spacy_pos, None)
+
+    def _reconstruct_text(self, doc, override_index=None, override_text=None):
+        """
+        Rebuild the original text using spaCy whitespace, optionally replacing one token.
+        This avoids the common 'space before punctuation' issues.
+        """
+        parts = []
+        for i, tok in enumerate(doc):
+            if override_index is not None and i == override_index:
+                parts.append((override_text if override_text is not None else tok.text) + tok.whitespace_)
+            else:
+                parts.append(tok.text_with_ws)
+        return "".join(parts)
 
     def simplify_text(self, text):
         print("Processing text...")
         doc = self.nlp(text)
-        simplified_tokens = []
+        simplified_tokens = [tok.text for tok in doc]
 
-        # Using tqdm for visibility on longer news articles
-        for token in tqdm(doc, desc="Simplifying"):
+        # Sentence embedding for the ORIGINAL sentence (computed once)
+        original_sentence = self._reconstruct_text(doc)
+        orig_emb = self.sim_model.encode(
+            original_sentence,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+
+        for i, token in enumerate(tqdm(doc, desc="Simplifying")):
             # 1. IDENTIFY: Is the word complex? (Exclude stop words/punctuation)
-            if not token.is_stop and not token.is_punct and zipf_frequency(token.text, 'en') < self.threshold:
-                word_freq = zipf_frequency(token.text, 'en')
+            if self.analyzer._is_complex_word(token):
+                word_freq = zipf_frequency(token.text, "en")
                 print(f"\n🔍 COMPLEX WORD IDENTIFIED: '{token.text}' (POS: {token.pos_}, Frequency: {word_freq:.2f})")
-                
-                # 2. GENERATE: Get candidates from WordNet
+
+                # 2. GENERATE: WordNet candidates (objectively simpler by freq)
                 wn_pos = self._get_wordnet_pos(token.pos_)
                 candidates = set()
                 if wn_pos:
                     for synset in wn.synsets(token.text, pos=wn_pos):
                         for lemma in synset.lemmas():
-                            cand = lemma.name().replace('_', ' ')
-                            # Only keep candidates that are objectively simpler
-                            if zipf_frequency(cand, 'en') > zipf_frequency(token.text, 'en'):
+                            cand = lemma.name().replace("_", " ")
+                            if zipf_frequency(cand, "en") > zipf_frequency(token.text, "en"):
                                 candidates.add(cand)
 
                 print(f"   📋 Generated {len(candidates)} candidate(s): {candidates if candidates else 'None'}")
 
-                # 3. SELECT & INFLECT: Find the best match
+                # 3. SELECT & INFLECT: sentence-level similarity
                 best_cand = None
                 max_sim = -1
                 candidate_scores = []
-                
+
                 for cand in candidates:
-                    # Inflect candidate to match original token's tag (e.g., VBD, NNS)
                     inflected_forms = getInflection(cand, tag=token.tag_)
-                    if not inflected_forms: continue
-                    inflected = inflected_forms[0]  # Get the first inflection form
-                    
-                    # Verify Semantic Similarity
-                    orig_sim = util.cos_sim(self.sim_model.encode(token.text), 
-                                           self.sim_model.encode(inflected)).item()
-                    
-                    candidate_scores.append((inflected, orig_sim, zipf_frequency(inflected, 'en')))
-                    
-                    if orig_sim > self.similarity_cutoff and orig_sim > max_sim:
-                        max_sim = orig_sim
+                    if not inflected_forms:
+                        continue
+                    inflected = inflected_forms[0]
+
+                    # Build the sentence with THIS token replaced
+                    modified_sentence = self._reconstruct_text(doc, override_index=i, override_text=inflected)
+
+                    # Compare embeddings of whole sentences
+                    mod_emb = self.sim_model.encode(
+                        modified_sentence,
+                        convert_to_tensor=True,
+                        normalize_embeddings=True,
+                    )
+                    sent_sim = util.cos_sim(orig_emb, mod_emb).item()
+
+                    candidate_scores.append((inflected, sent_sim, zipf_frequency(inflected, "en")))
+
+                    if sent_sim > self.similarity_cutoff and sent_sim > max_sim:
+                        max_sim = sent_sim
                         best_cand = inflected
-                
+
                 # Print ranking of alternatives
                 if candidate_scores:
-                    print(f"   📊 RANKING OF ALTERNATIVES (sorted by similarity):")
+                    print("   📊 RANKING OF ALTERNATIVES (sorted by sentence similarity):")
                     candidate_scores.sort(key=lambda x: x[1], reverse=True)
-                    for i, (word, sim, freq) in enumerate(candidate_scores, 1):
-                        status = "✅ SELECTED" if word == best_cand else "❌ Below threshold" if sim <= self.similarity_cutoff else "⚠️  Not best"
-                        print(f"      {i}. '{word}' - Similarity: {sim:.4f}, Frequency: {freq:.2f} {status}")
-                
+                    for rank, (word, sim, freq) in enumerate(candidate_scores, 1):
+                        status = (
+                            "✅ SELECTED" if word == best_cand
+                            else "❌ Below threshold" if sim <= self.similarity_cutoff
+                            else "⚠️  Not best"
+                        )
+                        print(f"      {rank}. '{word}' - SentSim: {sim:.4f}, Frequency: {freq:.2f} {status}")
+
                 if best_cand:
                     print(f"   ✨ REPLACEMENT: '{token.text}' → '{best_cand}'")
+                    simplified_tokens[i] = best_cand
                 else:
-                    print(f"   ⚠️  NO SUITABLE REPLACEMENT (keeping original)")
-                
-                simplified_tokens.append(best_cand if best_cand else token.text)
-            else:
-                simplified_tokens.append(token.text)
+                    print("   ⚠️  NO SUITABLE REPLACEMENT (keeping original)")
 
-        # Reconstruct sentence (simple join for demo)
-        return " ".join(simplified_tokens).replace(" .", ".").replace(" ,", ",")
+        # Reconstruct output preserving spacing/punctuation
+        # (replace tokens but keep original whitespace)
+        out_parts = []
+        for i, tok in enumerate(doc):
+            out_parts.append(simplified_tokens[i] + tok.whitespace_)
+        return "".join(out_parts)
 
 # --- Example Usage ---
 print("="*80)
