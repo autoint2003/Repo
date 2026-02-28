@@ -89,6 +89,59 @@ New configurable parameters:
 - `min_word_length`: Minimum word length to consider (default: 4)
 - `similarity_cutoff`: Minimum semantic similarity (default: 0.35)
 
+### 6. Efficient Unique Word Tracking (NEW - Feb 2026)
+
+**Problem**: The analysis was traversing the entire text document and repeatedly identifying the same words, creating duplicate entries every time a word appeared.
+
+**Example**: If "tariffs" appears 3 times in a document, it was being added to the complex words list 3 times.
+
+**Solution**: Implemented dictionary-based tracking that:
+- Stores each unique word once (case-insensitive)
+- Tracks occurrence count for repeated words
+- Preserves original form while normalizing for comparison
+
+**Implementation**:
+```python
+# Before: Using lists (with duplicates)
+stats = {
+    'complex_words': [],  # Contains duplicates
+    ...
+}
+
+# After: Using dictionaries (unique tracking)
+stats = {
+    'complex_words': {},  # {word: {'count': int, 'pos': str, 'freq': float, 'original': str}}
+    ...
+}
+
+# Example entry:
+'tariffs': {
+    'count': 3,           # Appears 3 times in the text
+    'pos': 'NOUN',
+    'freq': 3.63,
+    'original': 'tariffs'  # Preserves capitalization
+}
+```
+
+**Benefits**:
+- **More efficient**: Only processes each unique word once
+- **Clearer statistics**: Shows both unique word count and total occurrences
+- **Better insights**: Can identify which words repeat most frequently
+- **Accurate metrics**: Distinguishes between "unique complex words" and "total complex word occurrences"
+
+**Output Enhancement**:
+```
+Unique complex words: 22
+Total complex word occurrences: 25 (16.3%)
+```
+
+Now shows individual word occurrence counts:
+```
+- 'tariffs' (NOUN, freq: 3.63, occurrences: 3)
+- 'recover' (VERB, freq: 4.29, occurrences: 2)
+- 'refund' (NOUN, freq: 3.94, occurrences: 1)
+```
+
 ## Results Comparison
 
 ### Before Improvements (Threshold 4.5)
@@ -99,10 +152,12 @@ On a 153-token news article:
 
 ### After Improvements (Threshold 4.5)
 On the same 153-token article:
-- Complex words identified: 25 (16.3%)
+- **Unique** complex words: 22
+- **Total** complex word occurrences: 25 (16.3%)
 - **Excluded**: FedEx, Feb, Donald, IEEPA, 175 ✓
 - **No self-replacements** ✓
 - **No invalid inflections** ✓
+- **No duplicate processing** ✓
 - Successfully replaced: ~62% of complex words
 
 ### Words Now Properly Filtered Out
@@ -112,44 +167,47 @@ On the same 153-token article:
 
 ### Truly Complex Words Identified
 **Very complex (freq < 3.0)**:
-- 'overstepped' (2.53)
-- 'complicating' (2.94)
+- 'overstepped' (2.53, 1 occurrence)
+- 'complicating' (2.94, 1 occurrence)
 
 **Complex (freq 3.0-4.0)**:
-- 'refunds' (3.37)
-- 'blockbuster' (3.48)
-- 'tariff' (3.49)
-- 'tariffs' (3.63)
-- 'lawsuits' (3.63)
-- 'economists' (3.76)
-- 'impose' (3.92)
-- 'refund' (3.94)
+- 'refunds' (3.37, 1 occurrence)
+- 'blockbuster' (3.48, 1 occurrence)
+- 'tariff' (3.49, 1 occurrence)
+- 'tariffs' (3.63, **3 occurrences**)
+- 'lawsuits' (3.63, 1 occurrence)
+- 'economists' (3.76, 1 occurrence)
+- 'impose' (3.92, 1 occurrence)
+- 'refund' (3.94, 1 occurrence)
 
 **Borderline (freq 4.0-4.5)**:
-- 'attorneys' (4.01)
-- 'lawsuit' (4.09)
-- 'deemed' (4.19)
-- 'collections' (4.21)
-- 'recover' (4.29)
-- 'ruling' (4.29)
-- 'ruled' (4.30)
-- 'flood' (4.34)
-- 'filed' (4.49)
+- 'attorneys' (4.01, 1 occurrence)
+- 'lawsuit' (4.09, 1 occurrence)
+- 'deemed' (4.19, 1 occurrence)
+- 'collections' (4.21, 1 occurrence)
+- 'recover' (4.29, **2 occurrences**)
+- 'ruling' (4.29, 1 occurrence)
+- 'ruled' (4.30, 1 occurrence)
+- 'flood' (4.34, 1 occurrence)
+- 'filed' (4.49, 1 occurrence)
 
 ## Threshold Analysis
 
 ### Threshold 4.0 (More conservative)
-- Complex words: 15 (9.8%)
+- Unique complex words: 13
+- Total occurrences: 15 (9.8%)
 - Focuses on truly difficult words
 - May miss some words that could benefit from simplification
 
 ### Threshold 4.5 (Recommended - Current)
-- Complex words: 25 (16.3%)
+- Unique complex words: 22
+- Total occurrences: 25 (16.3%)
 - Good balance between precision and coverage
 - Catches genuinely complex words while avoiding false positives
 
 ### Threshold 5.0 (More aggressive)
-- Complex words: 40 (26.1%)
+- Unique complex words: 37
+- Total occurrences: 40 (26.1%)
 - Simplifies more words
 - Risk of over-simplification
 
@@ -188,10 +246,13 @@ Some replacements change meaning:
    - Added invalid inflection filtering
    - Removed unicode emoji encoding errors
 
-2. **analyze_complex_word_identification.py** (NEW):
-   - Comprehensive analysis tool
-   - Threshold comparison
-   - Detailed categorization of complex words
+2. **analyze_complex_word_identification.py**:
+   - **Initial version**: Comprehensive analysis tool with threshold comparison and detailed categorization
+   - **Updated (Feb 2026)**: Refactored to use dictionary-based tracking for unique words
+   - Changed `analyze_text()` method to use dictionaries instead of lists
+   - Updated `print_analysis()` to display unique word counts and occurrence statistics
+   - Tracks occurrence count for each unique word
+   - Uses lowercase normalization for consistent tracking while preserving original forms
 
 ## Summary
 
@@ -204,5 +265,6 @@ The complex word identification has been **significantly improved** with:
 - ✅ No more invalid inflections
 - ✅ Comprehensive statistics tracking
 - ✅ Better configurability
+- ✅ **Efficient unique word tracking** (eliminates duplicate processing)
 
-The system now correctly identifies 25 complex words (16.3%) in a typical news article, with ~62% successfully replaced with simpler alternatives.
+The system now correctly identifies 22 unique complex words (25 total occurrences, 16.3%) in a typical news article, with ~62% successfully replaced with simpler alternatives.

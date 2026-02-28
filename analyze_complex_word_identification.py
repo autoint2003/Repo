@@ -51,18 +51,19 @@ class ComplexWordAnalyzer:
     def analyze_text(self, text, use_improved=True):
         """
         Analyze text and return statistics about complex words.
+        Uses dictionaries to track unique words and their occurrence counts.
         """
         doc = self.nlp(text)
         
         stats = {
             'total_tokens': 0,
-            'complex_words': [],
-            'excluded_proper_nouns': [],
-            'excluded_numbers': [],
-            'excluded_acronyms': [],
-            'excluded_short': [],
-            'excluded_wrong_pos': [],
-            'borderline_words': []  # Words close to threshold (within 0.3)
+            'complex_words': {},  # {word: {'count': int, 'pos': str, 'freq': float}}
+            'excluded_proper_nouns': {},  # {word: {'count': int, 'freq': float}}
+            'excluded_numbers': {},
+            'excluded_acronyms': {},
+            'excluded_short': {},
+            'excluded_wrong_pos': {},  # {word: {'count': int, 'pos': str, 'freq': float}}
+            'borderline_words': {}  # Words close to threshold (within 0.3)
         }
         
         for token in doc:
@@ -71,6 +72,7 @@ class ComplexWordAnalyzer:
             if token.is_stop or token.is_punct:
                 continue
             
+            word_lower = token.text.lower()  # Use lowercase for consistent tracking
             word_freq = zipf_frequency(token.text, 'en')
             
             # Check if it's complex before filters
@@ -78,68 +80,111 @@ class ComplexWordAnalyzer:
                 # Categorize why it might be excluded
                 if use_improved:
                     if token.pos_ == 'PROPN':
-                        stats['excluded_proper_nouns'].append((token.text, word_freq))
+                        if word_lower not in stats['excluded_proper_nouns']:
+                            stats['excluded_proper_nouns'][word_lower] = {
+                                'count': 0, 'freq': word_freq, 'original': token.text
+                            }
+                        stats['excluded_proper_nouns'][word_lower]['count'] += 1
                         continue
                     
                     if token.pos_ == 'NUM':
-                        stats['excluded_numbers'].append((token.text, word_freq))
+                        if word_lower not in stats['excluded_numbers']:
+                            stats['excluded_numbers'][word_lower] = {
+                                'count': 0, 'freq': word_freq, 'original': token.text
+                            }
+                        stats['excluded_numbers'][word_lower]['count'] += 1
                         continue
                     
                     if len(token.text) < self.min_word_length:
-                        stats['excluded_short'].append((token.text, word_freq))
+                        if word_lower not in stats['excluded_short']:
+                            stats['excluded_short'][word_lower] = {
+                                'count': 0, 'freq': word_freq, 'original': token.text
+                            }
+                        stats['excluded_short'][word_lower]['count'] += 1
                         continue
                     
                     if token.text.isupper() and len(token.text) > 1:
-                        stats['excluded_acronyms'].append((token.text, word_freq))
+                        if word_lower not in stats['excluded_acronyms']:
+                            stats['excluded_acronyms'][word_lower] = {
+                                'count': 0, 'freq': word_freq, 'original': token.text
+                            }
+                        stats['excluded_acronyms'][word_lower]['count'] += 1
                         continue
                     
                     wn_pos_map = {"NOUN", "VERB", "ADJ", "ADV"}
                     if token.pos_ not in wn_pos_map:
-                        stats['excluded_wrong_pos'].append((token.text, token.pos_, word_freq))
+                        if word_lower not in stats['excluded_wrong_pos']:
+                            stats['excluded_wrong_pos'][word_lower] = {
+                                'count': 0, 'pos': token.pos_, 'freq': word_freq, 'original': token.text
+                            }
+                        stats['excluded_wrong_pos'][word_lower]['count'] += 1
                         continue
                 
                 # If we get here, it's identified as complex
-                stats['complex_words'].append((token.text, token.pos_, word_freq))
+                if word_lower not in stats['complex_words']:
+                    stats['complex_words'][word_lower] = {
+                        'count': 0, 'pos': token.pos_, 'freq': word_freq, 'original': token.text
+                    }
+                stats['complex_words'][word_lower]['count'] += 1
                 
                 # Check if borderline
                 if self.threshold - word_freq < 0.3:
-                    stats['borderline_words'].append((token.text, word_freq))
+                    if word_lower not in stats['borderline_words']:
+                        stats['borderline_words'][word_lower] = {
+                            'count': 0, 'freq': word_freq, 'original': token.text
+                        }
+                    stats['borderline_words'][word_lower]['count'] += 1
         
         return stats
     
     def print_analysis(self, stats):
         """
         Print detailed analysis of complex word identification.
+        Now works with dictionary-based data structure.
         """
         print("\n" + "="*80)
         print("COMPLEX WORD IDENTIFICATION ANALYSIS")
         print("="*80)
         print(f"Threshold: {self.threshold} | Min word length: {self.min_word_length}")
         print(f"\nTotal tokens: {stats['total_tokens']}")
-        print(f"Complex words identified: {len(stats['complex_words'])} ({len(stats['complex_words'])/stats['total_tokens']*100:.1f}%)")
+        
+        # Calculate total occurrences of complex words
+        total_complex_occurrences = sum(data['count'] for data in stats['complex_words'].values())
+        unique_complex_words = len(stats['complex_words'])
+        
+        print(f"Unique complex words: {unique_complex_words}")
+        print(f"Total complex word occurrences: {total_complex_occurrences} ({total_complex_occurrences/stats['total_tokens']*100:.1f}%)")
         
         print(f"\n--- IMPROVED FILTERS EXCLUDED ---")
-        print(f"Proper nouns: {len(stats['excluded_proper_nouns'])}")
+        print(f"Proper nouns (unique): {len(stats['excluded_proper_nouns'])}")
         if stats['excluded_proper_nouns']:
-            for word, freq in stats['excluded_proper_nouns'][:5]:
-                print(f"  - '{word}' (freq: {freq:.2f})")
+            sorted_proper = sorted(stats['excluded_proper_nouns'].items(), 
+                                  key=lambda x: x[1]['count'], reverse=True)[:5]
+            for word, data in sorted_proper:
+                print(f"  - '{data['original']}' (freq: {data['freq']:.2f}, occurrences: {data['count']})")
             if len(stats['excluded_proper_nouns']) > 5:
                 print(f"  ... and {len(stats['excluded_proper_nouns'])-5} more")
         
-        print(f"\nNumbers: {len(stats['excluded_numbers'])}")
+        print(f"\nNumbers (unique): {len(stats['excluded_numbers'])}")
         if stats['excluded_numbers']:
-            for word, freq in stats['excluded_numbers'][:5]:
-                print(f"  - '{word}' (freq: {freq:.2f})")
+            sorted_nums = sorted(stats['excluded_numbers'].items(), 
+                               key=lambda x: x[1]['count'], reverse=True)[:5]
+            for word, data in sorted_nums:
+                print(f"  - '{data['original']}' (freq: {data['freq']:.2f}, occurrences: {data['count']})")
         
-        print(f"\nAcronyms (all caps): {len(stats['excluded_acronyms'])}")
+        print(f"\nAcronyms (unique): {len(stats['excluded_acronyms'])}")
         if stats['excluded_acronyms']:
-            for word, freq in stats['excluded_acronyms'][:5]:
-                print(f"  - '{word}' (freq: {freq:.2f})")
+            sorted_acro = sorted(stats['excluded_acronyms'].items(), 
+                               key=lambda x: x[1]['count'], reverse=True)[:5]
+            for word, data in sorted_acro:
+                print(f"  - '{data['original']}' (freq: {data['freq']:.2f}, occurrences: {data['count']})")
         
-        print(f"\nShort words (< {self.min_word_length} chars): {len(stats['excluded_short'])}")
+        print(f"\nShort words (unique, < {self.min_word_length} chars): {len(stats['excluded_short'])}")
         if stats['excluded_short']:
-            for word, freq in stats['excluded_short'][:5]:
-                print(f"  - '{word}' (freq: {freq:.2f})")
+            sorted_short = sorted(stats['excluded_short'].items(), 
+                                key=lambda x: x[1]['count'], reverse=True)[:5]
+            for word, data in sorted_short:
+                print(f"  - '{data['original']}' (freq: {data['freq']:.2f}, occurrences: {data['count']})")
         
         print(f"\n--- COMPLEX WORDS BY FREQUENCY RANGE ---")
         freq_ranges = {
@@ -149,21 +194,27 @@ class ComplexWordAnalyzer:
             'Borderline (4-{})'.format(self.threshold): []
         }
         
-        for word, pos, freq in stats['complex_words']:
+        for word, data in stats['complex_words'].items():
+            freq = data['freq']
+            pos = data['pos']
+            count = data['count']
+            original = data['original']
+            
             if freq < 2:
-                freq_ranges['Very low (0-2)'].append((word, pos, freq))
+                freq_ranges['Very low (0-2)'].append((original, pos, freq, count))
             elif freq < 3:
-                freq_ranges['Low (2-3)'].append((word, pos, freq))
+                freq_ranges['Low (2-3)'].append((original, pos, freq, count))
             elif freq < 4:
-                freq_ranges['Medium-low (3-4)'].append((word, pos, freq))
+                freq_ranges['Medium-low (3-4)'].append((original, pos, freq, count))
             else:
-                freq_ranges[f'Borderline (4-{self.threshold})'].append((word, pos, freq))
+                freq_ranges[f'Borderline (4-{self.threshold})'].append((original, pos, freq, count))
         
         for range_name, words in freq_ranges.items():
             if words:
-                print(f"\n{range_name}: {len(words)} words")
-                for word, pos, freq in sorted(words, key=lambda x: x[2])[:10]:
-                    print(f"  - '{word}' ({pos}, freq: {freq:.2f})")
+                print(f"\n{range_name}: {len(words)} unique words")
+                # Sort by frequency, then by occurrence count
+                for original, pos, freq, count in sorted(words, key=lambda x: (x[2], -x[3]))[:10]:
+                    print(f"  - '{original}' ({pos}, freq: {freq:.2f}, occurrences: {count})")
                 if len(words) > 10:
                     print(f"  ... and {len(words)-10} more")
 
