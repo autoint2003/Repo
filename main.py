@@ -4,10 +4,12 @@ import os
 import asyncio
 import nltk
 import spacy
-from scripts.text_simplification import LexicalSimplifier
-from scripts.t5_simplification_summarization import T5TextProcessor
+from test_simpl import LexicalSimplifier
+from t5_simplification_summarization import T5TextProcessor
 from scripts.syntactic_evaluation import analyze_readability
 from scripts.complexity_evaluation import judge_complexity
+from syntax_simplifier import SyntaxSimplifier
+
 
 load_dotenv()
 DOCUMENTS = os.getenv('SOURCE_DOC')
@@ -24,6 +26,7 @@ if not spacy.util.is_package("en_core_web_sm"):
 df = pd.read_csv(DOCUMENTS)
 text_simplifier = LexicalSimplifier()
 llm_text_simplifier = T5TextProcessor()
+syntax_simplifier = SyntaxSimplifier()
 
 # Ensure 'simplified_body' and 'llm_simplified_body' columns exist
 if 'simplified_body' not in df.columns:
@@ -59,6 +62,9 @@ for idx, row in df.iterrows():
 	llm_simplified = llm_text_simplifier.simplify_text(text)
 	df.at[idx, 'simplified_body'] = text_simplified    
 	df.at[idx, 'llm_simplified_body'] = llm_simplified  
+
+	syntax_simplified = syntax_simplifier.simplify_text(text)
+	df.at[idx, 'simplified_syntax_body'] = syntax_simplified
 
 	# Basic tests between columns (placeholders for more advanced checks)
 	
