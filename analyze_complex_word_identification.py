@@ -27,12 +27,14 @@ class ComplexWordAnalyzer:
         if word_freq >= self.threshold:
             return False
         
-        if use_improved_filters:
-            # Improved filters
+        if use_improved_filters: # Improved filters
+            if token.ent_type_: # Skip named entities
+                return False
+
             if token.pos_ == 'PROPN':  # Exclude proper nouns
                 return False
             
-            if token.pos_ == 'NUM':  # Exclude numbers
+            if token.like_num or token.pos_ == 'NUM':  # Exclude numbers
                 return False
             
             if len(token.text) < self.min_word_length:  # Exclude short words
