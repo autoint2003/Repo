@@ -163,11 +163,12 @@ class LexicalSimplifier:
                     for synset in wn.synsets(token.text, pos=wn_pos):
                         for lemma in synset.lemmas():
                             cand = lemma.name().replace("_", " ")
-
                             # Skip multi-word candidates
                             if " " in cand:
                                 continue
-
+                            # remove duplicates
+                            if cand.lower() == token.lemma_.lower():
+                                continue
                             # Only keep objectively simpler candidates
                             if zipf_frequency(cand, "en") > zipf_frequency(token.text, "en"):
                                 candidates.add(cand)
@@ -184,8 +185,11 @@ class LexicalSimplifier:
                     inflected_forms = getInflection(cand, tag=token.tag_)
                     if not inflected_forms:
                         continue
-
                     inflected = inflected_forms[0]
+                    # remove duplicates
+                    if inflected.lower() == token.text.lower():
+                        continue
+
                     modified_sentence = self._reconstruct_text(
                         doc,
                         override_index=i,
