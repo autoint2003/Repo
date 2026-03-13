@@ -3,9 +3,10 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 import json
 import re
+from collections import deque
 
 class CNACrawler:
     def __init__(self):
@@ -14,6 +15,31 @@ class CNACrawler:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         self.articles = []
+
+    def _is_valid_article_url(self, url, section=None):
+        """
+        Validate CNA article URL and optionally constrain to a section path.
+        """
+        if not url:
+            return False
+
+        parsed = urlparse(url.strip())
+        path = parsed.path or ''
+        hostname = (parsed.netloc or '').lower()
+
+        if hostname and 'channelnewsasia.com' not in hostname:
+            return False
+
+        if '/profile/sso/login' in path:
+            return False
+
+        if section and not path.startswith(f'/{section}/'):
+            return False
+
+        if '-' not in path:
+            return False
+
+        return True
         
     def get_article_links(self, section='news', max_pages=1):
         """
@@ -48,9 +74,11 @@ class CNACrawler:
                             full_url = href
                         else:
                             continue
+
+                        full_url = full_url.strip()
                         
                         # Avoid duplicates and non-article pages
-                        if full_url not in article_links and '-' in href:
+                        if full_url not in article_links and self._is_valid_article_url(full_url, section=section):
                             article_links.append(full_url)
                 
                 time.sleep(1)  # Be respectful with delays
@@ -61,6 +89,100 @@ class CNACrawler:
         
         print(f"Found {len(article_links)} article links")
         return article_links
+
+    def get_article_links_from_sitemap(self, section='news', max_links=None):
+        """
+        Fallback link collection using CNA's news sitemap feed.
+        """
+        sitemap_url = f"{self.base_url}/api/v1/sitemap-news-feed?_format=xml"
+        article_links = []
+
+        try:
+            print(f"Fetching sitemap feed for section '{section}'...")
+            response = requests.get(sitemap_url, headers=self.headers, timeout=15)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'xml')
+            loc_tags = soup.find_all('loc')
+
+            section_pattern = f"/{section}/"
+            for loc in loc_tags:
+                url = loc.get_text(strip=True)
+                if not url:
+                    continue
+
+                if not self._is_valid_article_url(url, section=section):
+                    continue
+
+                if url not in article_links:
+                    article_links.append(url)
+
+                if max_links and len(article_links) >= max_links:
+                    break
+
+            print(f"Found {len(article_links)} sitemap article links for section '{section}'")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching sitemap links: {e}")
+
+        return article_links
+
+    def get_related_article_links(self, seed_links, section='news', max_links=None, max_hops=250):
+        """
+        Discover additional article links by traversing links found in seed article pages.
+        """
+        section_pattern = f"/{section}/"
+        discovered = list(dict.fromkeys(seed_links))
+        discovered_set = set(discovered)
+        queue = deque(discovered)
+        hops = 0
+
+        print(f"Starting related-link discovery for section '{section}'...")
+
+        while queue and hops < max_hops:
+            if max_links and len(discovered) >= max_links:
+                break
+
+            current_url = queue.popleft()
+            hops += 1
+
+            try:
+                response = requests.get(current_url, headers=self.headers, timeout=10)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'html.parser')
+
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href', '')
+                    if not href:
+                        continue
+
+                    if href.startswith('/'):
+                        full_url = urljoin(self.base_url, href)
+                    elif href.startswith('http'):
+                        full_url = href
+                    else:
+                        continue
+
+                    full_url = full_url.strip()
+
+                    if not self._is_valid_article_url(full_url, section=section):
+                        continue
+
+                    if full_url in discovered_set:
+                        continue
+
+                    discovered.append(full_url)
+                    discovered_set.add(full_url)
+                    queue.append(full_url)
+
+                    if max_links and len(discovered) >= max_links:
+                        break
+
+            except requests.exceptions.RequestException:
+                continue
+
+        print(f"Found {len(discovered)} links after related-link discovery")
+        return discovered
     
     def scrape_article(self, url):
         """
@@ -283,16 +405,45 @@ class CNACrawler:
         Main crawling function.
         """
         print(f"Starting crawl of CNA {section} section...")
+        self.articles = []
         
         # Get article links
         article_links = self.get_article_links(section, max_pages)
-        
-        # Limit number of articles if specified
-        if max_articles:
-            article_links = article_links[:max_articles]
+
+        # Fallback to sitemap feed if listing pages do not provide enough links.
+        if max_articles and len(article_links) < max_articles:
+            needed = max_articles - len(article_links)
+            print(f"Need {needed} more links. Trying sitemap fallback...")
+            sitemap_links = self.get_article_links_from_sitemap(section, max_links=max_articles * 3)
+            for link in sitemap_links:
+                if link not in article_links:
+                    article_links.append(link)
+                if len(article_links) >= max_articles:
+                    break
+
+            print(f"Total links after sitemap fallback: {len(article_links)}")
+
+        if max_articles and len(article_links) < max_articles:
+            needed = max_articles - len(article_links)
+            print(f"Need {needed} more links. Trying related-link discovery...")
+            related_links = self.get_related_article_links(
+                article_links,
+                section=section,
+                max_links=max_articles * 3,
+            )
+            for link in related_links:
+                if link not in article_links:
+                    article_links.append(link)
+                if len(article_links) >= max_articles:
+                    break
+
+            print(f"Total links after related-link discovery: {len(article_links)}")
         
         # Scrape each article
         for i, url in enumerate(article_links, 1):
+            if max_articles and len(self.articles) >= max_articles:
+                break
+
             print(f"Scraping article {i}/{len(article_links)}: {url}")
             
             article = self.scrape_article(url)
