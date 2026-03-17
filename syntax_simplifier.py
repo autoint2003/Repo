@@ -17,7 +17,16 @@ class SyntaxSimplifier:
         doc = self.nlp(document)
         result_parts = []
 
+        in_quote = False
         for sentence in doc.sentences:
+            text = sentence.text.strip()
+            if not in_quote and text.startswith(('”', '\u201c', "``", "\u2018")):
+                in_quote = True
+            if in_quote:
+                result_parts.append(text)
+                if any([punct in text for punct in ("”", '\u201d', "''", "\u2019")]):
+                    in_quote = False
+                continue
             tree = self._stanza_to_nltk(sentence.constituency)
             result_parts.extend(self._split_coordinations(tree))
 
@@ -177,8 +186,11 @@ class SyntaxSimplifier:
         words = tree.leaves()
         sentence = " ".join(words)
         sentence = re.sub(r"\s+([.,?!:;])", r"\1", sentence)
+        sentence = re.sub(r"\s+(['’]s|['’]re|['’]ve|['’]ll|['’]d|['’]m|n['’]t)\b", r"\1", sentence)
         sentence = re.sub(r"\s+-\s+", "-", sentence)
-        sentence = re.sub(r"-LRB-", "(", sentence)
-        sentence = re.sub(r"-RRB-", ")", sentence)
+        sentence = re.sub(r"-LRB-\s*", "(", sentence)
+        sentence = re.sub(r"\s*-RRB-", ")", sentence)
+        if sentence and sentence[-1] not in ".,!?":
+            sentence += "."
 
         return sentence
