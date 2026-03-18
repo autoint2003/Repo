@@ -6,14 +6,113 @@ and compares different threshold settings.
 """
 
 import spacy
+import csv
+from pathlib import Path
 from wordfreq import zipf_frequency
 from collections import defaultdict
 
 class ComplexWordAnalyzer:
-    def __init__(self, threshold=4.5, min_word_length=4):
+    def __init__(self, threshold=4.0, min_word_length=4):
         self.nlp = spacy.load("en_core_web_sm")
         self.threshold = threshold
         self.min_word_length = min_word_length
+        self.p4_exclusion_words = self._load_whitelist_words()
+
+    def _get_token_lemma(self, token):
+        """
+        Return a normalized lemma for whitelist and frequency checks.
+        """
+        lemma = token.lemma_.strip().lower()
+        if not lemma or lemma == "-pron-":
+            return token.text.lower()
+        return lemma
+
+    def _get_easy_variant_forms(self, token):
+        """
+        Generate simple surface-form fallbacks for common inflections.
+        """
+        word = token.text.lower().strip()
+        variants = set()
+
+        if word.endswith("ies") and len(word) > 4:
+            variants.add(word[:-3] + "y")
+        if word.endswith("ied") and len(word) > 4:
+            variants.add(word[:-3] + "y")
+        if word.endswith("ing") and len(word) > 5:
+            variants.add(word[:-3])
+            variants.add(word[:-3] + "e")
+            if len(word) > 6 and word[-4] == word[-5]:
+                variants.add(word[:-4])
+        if word.endswith("ed") and len(word) > 4:
+            variants.add(word[:-2])
+            variants.add(word[:-1])
+            if word.endswith("tted") or word.endswith("pped") or word.endswith("nned"):
+                variants.add(word[:-3])
+        if word.endswith("es") and len(word) > 4:
+            variants.add(word[:-2])
+        if word.endswith("s") and len(word) > 3:
+            variants.add(word[:-1])
+
+        variants.discard("")
+        return variants
+
+    def _get_token_forms(self, token):
+        """
+        Return normalized candidate forms for whitelist and frequency checks.
+        """
+        forms = {token.text.lower(), self._get_token_lemma(token)}
+        forms.update(self._get_easy_variant_forms(token))
+        return {form for form in forms if form}
+
+    def _get_matching_p4_word(self, token):
+        """
+        Return the matching whitelist form when the token is considered easy.
+        """
+        for form in self._get_token_forms(token):
+            if form in self.p4_exclusion_words:
+                return form
+        return None
+
+    def _get_word_frequency(self, token):
+        """
+        Use the easiest recognized form so inflections inherit base-word frequency.
+        """
+        return max(zipf_frequency(form, 'en') for form in self._get_token_forms(token))
+
+    def _get_complexity_key(self, token):
+        """
+        Group variants by lemma to reduce duplicate review entries.
+        """
+        return self._get_token_lemma(token)
+
+    def _load_whitelist_words(self):
+        """
+        Load words to exclude from complex-word detection.
+        Sources:
+        - P4wordlist.csv
+        - sgwhitelist.csv
+        Supports one word per line and comma-separated rows.
+        """
+        base_dir = Path(__file__).resolve().parent
+        whitelist_paths = [
+            base_dir / "data" / "P4wordlist.csv",
+            base_dir / "data" / "sgwhitelist.csv",
+        ]
+        exclusion_words = set()
+
+        for whitelist_path in whitelist_paths:
+            if not whitelist_path.exists():
+                continue
+
+            with whitelist_path.open("r", encoding="utf-8", newline="") as csv_file:
+                reader = csv.reader(csv_file)
+                for row in reader:
+                    for cell in row:
+                        word = cell.strip().lower()
+                        if word:
+                            exclusion_words.add(word)
+
+        return exclusion_words
     
     def _is_complex_word(self, token, use_improved_filters=True):
         """
@@ -22,17 +121,22 @@ class ComplexWordAnalyzer:
         # Basic filters (always applied)
         if token.is_stop or token.is_punct:
             return False
+
+        if self._get_matching_p4_word(token):
+            return False
         
-        word_freq = zipf_frequency(token.text, 'en')
+        word_freq = self._get_word_frequency(token)
         if word_freq >= self.threshold:
             return False
         
-        if use_improved_filters:
-            # Improved filters
+        if use_improved_filters: # Improved filters
+            if token.ent_type_: # Skip named entities
+                return False
+
             if token.pos_ == 'PROPN':  # Exclude proper nouns
                 return False
             
-            if token.pos_ == 'NUM':  # Exclude numbers
+            if token.like_num or token.pos_ == 'NUM':  # Exclude numbers
                 return False
             
             if len(token.text) < self.min_word_length:  # Exclude short words
@@ -58,6 +162,7 @@ class ComplexWordAnalyzer:
         stats = {
             'total_tokens': 0,
             'complex_words': {},  # {word: {'count': int, 'pos': str, 'freq': float}}
+            'excluded_p4_words': {},
             'excluded_proper_nouns': {},  # {word: {'count': int, 'freq': float}}
             'excluded_numbers': {},
             'excluded_acronyms': {},
@@ -72,8 +177,17 @@ class ComplexWordAnalyzer:
             if token.is_stop or token.is_punct:
                 continue
             
-            word_lower = token.text.lower()  # Use lowercase for consistent tracking
-            word_freq = zipf_frequency(token.text, 'en')
+            word_lower = self._get_complexity_key(token)
+            word_freq = self._get_word_frequency(token)
+            matched_p4_word = self._get_matching_p4_word(token)
+
+            if matched_p4_word:
+                if word_lower not in stats['excluded_p4_words']:
+                    stats['excluded_p4_words'][word_lower] = {
+                        'count': 0, 'freq': word_freq, 'original': token.text, 'matched_word': matched_p4_word
+                    }
+                stats['excluded_p4_words'][word_lower]['count'] += 1
+                continue
             
             # Check if it's complex before filters
             if word_freq < self.threshold:
@@ -123,7 +237,7 @@ class ComplexWordAnalyzer:
                 # If we get here, it's identified as complex
                 if word_lower not in stats['complex_words']:
                     stats['complex_words'][word_lower] = {
-                        'count': 0, 'pos': token.pos_, 'freq': word_freq, 'original': token.text
+                        'count': 0, 'pos': token.pos_, 'freq': word_freq, 'original': token.text, 'lemma': self._get_token_lemma(token)
                     }
                 stats['complex_words'][word_lower]['count'] += 1
                 
@@ -156,6 +270,15 @@ class ComplexWordAnalyzer:
         print(f"Total complex word occurrences: {total_complex_occurrences} ({total_complex_occurrences/stats['total_tokens']*100:.1f}%)")
         
         print(f"\n--- IMPROVED FILTERS EXCLUDED ---")
+        print(f"P4 wordlist matches (unique): {len(stats['excluded_p4_words'])}")
+        if stats['excluded_p4_words']:
+            sorted_p4 = sorted(stats['excluded_p4_words'].items(), 
+                               key=lambda x: x[1]['count'], reverse=True)[:5]
+            for word, data in sorted_p4:
+                print(f"  - '{data['original']}' -> '{data['matched_word']}' (freq: {data['freq']:.2f}, occurrences: {data['count']})")
+            if len(stats['excluded_p4_words']) > 5:
+                print(f"  ... and {len(stats['excluded_p4_words'])-5} more")
+
         print(f"Proper nouns (unique): {len(stats['excluded_proper_nouns'])}")
         if stats['excluded_proper_nouns']:
             sorted_proper = sorted(stats['excluded_proper_nouns'].items(), 
