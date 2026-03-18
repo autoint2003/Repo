@@ -7,7 +7,7 @@ from wordfreq import zipf_frequency
 from lemminflect import getInflection
 from tqdm import tqdm
 import pandas as pd
-from analyze_complex_word_identification import ComplexWordAnalyzer
+from .analyze_complex_word_identification import ComplexWordAnalyzer
 
 class LexicalSimplifier:
     def __init__(self, threshold=4.5, similarity_cutoff=0.35, batch_size=32, min_word_length=4):
@@ -252,58 +252,84 @@ class LexicalSimplifier:
             out_parts.append(simplified_tokens[i] + tok.whitespace_)
         return "".join(out_parts)
 
-# --- Example Usage ---
-print("="*80)
-print("LEXICAL SIMPLIFICATION DEMONSTRATION")
-print("="*80)
+if __name__ == "__main__":
+    # --- Example Usage ---
+    # print("="*80)
+    # print("LEXICAL SIMPLIFICATION DEMONSTRATION")
+    # print("="*80)
 
-simplifier = LexicalSimplifier(threshold=4.5)
-news_article = "The government implemented a strategy to diminish the economic volatility."
+    # simplifier = LexicalSimplifier(threshold=4.5)
+    # news_article = "The government implemented a strategy to diminish the economic volatility."
 
-print(f"\n📝 Original: {news_article}")
-print("\n" + "="*80)
-print("PROCESSING...")
-print("="*80)
+    # print(f"\n📝 Original: {news_article}")
+    # print("\n" + "="*80)
+    # print("PROCESSING...")
+    # print("="*80)
 
-result = simplifier.simplify_text(news_article)
+    # result = simplifier.simplify_text(news_article)
 
-print("\n" + "="*80)
-print(f"✅ Simplified: {result}")
-print("="*80)
+    # print("\n" + "="*80)
+    # print(f"✅ Simplified: {result}")
+    # print("="*80)
 
-# Load the CNA articles CSV file (first 10 rows only)
-print("\n\n" + "="*80)
-print("TESTING ON REAL NEWS ARTICLE")
-print("="*80)
+    # # Load the CNA articles CSV file (first 10 rows only)
+    # print("\n\n" + "="*80)
+    # print("TESTING ON REAL NEWS ARTICLE")
+    # print("="*80)
 
-df = pd.read_csv('cna_articles.csv', nrows=10)
+    # df = pd.read_csv('cna_articles.csv', nrows=10)
 
-# Display basic information about the dataframe
-print(f"\nDataset Shape: {df.shape}")
-print(f"Columns: {df.columns.tolist()}")
+    # # Display basic information about the dataframe
+    # print(f"\nDataset Shape: {df.shape}")
+    # print(f"Columns: {df.columns.tolist()}")
 
-# Find the first row with valid body_content
-article_text = None
-article_idx = None
-for idx in range(1,len(df)):
-    text = df['body_content'].iloc[idx]
-    if pd.notna(text) and isinstance(text, str) and len(text.strip()) > 0:
-        article_text = text
-        article_idx = idx
-        break
+    # # Find the first row with valid body_content
+    # article_text = None
+    # article_idx = None
+    # for idx in range(1,len(df)):
+    #     text = df['body_content'].iloc[idx]
+    #     if pd.notna(text) and isinstance(text, str) and len(text.strip()) > 0:
+    #         article_text = text
+    #         article_idx = idx
+    #         break
 
-if article_text is None:
-    print("\n⚠️  No valid articles found in the dataset!")
-else:
+    # if article_text is None:
+    #     print("\n⚠️  No valid articles found in the dataset!")
+    # else:
+    #     print("\n" + "="*80)
+    #     print("PROCESSING ARTICLE...")
+
+    # Load row 3 from CSV
+
+    import csv
+    from pathlib import Path
+    csv_path = Path(__file__).resolve().parent.parent / "data" / "cna_articles.csv"
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        row_3 = rows[0]
+
+    article_text = row_3["body_content"]
+    title = row_3["title"]
+    simplifier = LexicalSimplifier(threshold=4.5)
+    print("="*80)
+    print("LEXICAL SIMPLIFICATION - Row 3 Analysis")
+    print("="*80)
+    print(f"\nTitle: {title}")
+    print(f"\nText length: {len(article_text)} characters")
     print("\n" + "="*80)
     print("PROCESSING ARTICLE...")
     print("="*80)
 
     simplified_article = simplifier.simplify_text(article_text)
 
-    print(f"\n📰 Using article at index {article_idx}")
-    print(f"\n--- Original Article ---\n{article_text[:1000]}..." if len(article_text) > 1000 else f"\n--- Original Article ---\n{article_text}")
+    print("\n" + "="*80)
+    print("--- ORIGINAL ARTICLE ---")
+    print("="*80)
+    print(article_text)
 
     print("\n" + "="*80)
-    print(f"--- Simplified Article ---\n{simplified_article[:1000]}..." if len(simplified_article) > 1000 else f"--- Simplified Article ---\n{simplified_article}")
+    print("--- SIMPLIFIED ARTICLE ---")
+    print("="*80)
+    print(simplified_article)
     print("="*80)

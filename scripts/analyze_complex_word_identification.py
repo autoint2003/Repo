@@ -343,16 +343,23 @@ class ComplexWordAnalyzer:
 
 
 if __name__ == "__main__":
-    # Test text
-    test_article = """Global transportation company FedEx on Monday (Feb 23) filed a lawsuit in the United States Court of International Trade seeking a refund for President Donald Trump's emergency tariffs, one of the highest profile moves to recover funds since the US Supreme Court last week deemed the tariffs illegal. A flood of lawsuits to recover billions of dollars is expected by trade attorneys after the blockbuster ruling. The recovery process still has to be worked out by a lower court, however, complicating the matter. More than US$175 billion in US tariff collections are subject to potential refunds after the US Supreme Court last Friday ruled 6-3 that Trump overstepped his authority by using the International Emergency Economic Powers Act (IEEPA), a sanctions law, to impose tariffs on imported goods, Penn-Wharton Budget Model economists said."""
+    # Load row 3 from CSV
+    csv_path = Path(__file__).resolve().parent.parent / "data" / "cna_articles.csv"
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        row_3 = rows[3]
+    
+    text = row_3["body_content"]
+    title = row_3["title"]
     
     print("="*80)
-    print("COMPARING DIFFERENT THRESHOLD VALUES")
+    print("COMPLEX WORD IDENTIFICATION - Row 3 Analysis")
     print("="*80)
+    print(f"\nTitle: {title}")
+    print(f"\nText length: {len(text)} characters\n")
     
-    # Test with different thresholds
-    for threshold in [4.0, 4.5, 5.0]:
-        analyzer = ComplexWordAnalyzer(threshold=threshold, min_word_length=4)
-        stats = analyzer.analyze_text(test_article, use_improved=True)
-        analyzer.print_analysis(stats)
-        print("\n")
+    # Analyze with default threshold
+    analyzer = ComplexWordAnalyzer(threshold=4.5, min_word_length=4)
+    stats = analyzer.analyze_text(text, use_improved=True)
+    analyzer.print_analysis(stats)

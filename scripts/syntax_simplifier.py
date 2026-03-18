@@ -194,3 +194,27 @@ class SyntaxSimplifier:
             sentence += "."
 
         return sentence
+    
+if __name__ == "__main__":
+    import csv
+    
+    # Load row 3 (0-indexed) from CSV
+    csv_path = "./data/cna_articles.csv"
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        row_3 = rows[3]
+    
+    simplifier = SyntaxSimplifier()
+    text = row_3["body_content"]
+    print(f"Title: {row_3['title']}\n")
+    print(f"Input text length: {len(text)} characters\n")
+    print("=" * 80)
+    print("ORIGINAL TEXT:")
+    print("=" * 80)
+    print(text)
+    print("\n" + "=" * 80)
+    print("SIMPLIFIED OUTPUT:")
+    print("=" * 80)
+    simplified = simplifier.simplify_text(text)
+    print(simplified)

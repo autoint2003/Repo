@@ -22,9 +22,10 @@ def deny_all_permissions(request: dict, invocation: dict) -> dict:
 @dataclass
 class JudgmentResult:
     """Structured result from the LLM judge."""
-    less_complicated_text: str  # "A" or "B"
-    confidence: float           # 0.0 – 1.0
-    reasons: list[str]          # bullet-point reasons
+    text_A_complexity: float  # 0.0 – 1.0 (higher = more complex)
+    text_B_complexity: float  # 0.0 – 1.0 (higher = more complex)
+    confidence: float          # 0.0 – 1.0
+    reasons: list[str]         # bullet-point reasons
 
 
 # ── Prompt construction ─────────────────────────────────────────────────────
@@ -45,7 +46,8 @@ Evaluate word complexity along these dimensions:
 
 Return your answer as a JSON object with EXACTLY this schema (no markdown fences):
 {
-  "less_complicated_text": "A" | "B",
+  "text_A_complexity": <float 0.0-1.0>,
+  "text_B_complexity": <float 0.0-1.0>,
   "confidence": <float 0.0-1.0>,
   "reasons": ["reason 1", "reason 2", ...]
 }
@@ -59,7 +61,7 @@ def build_user_prompt(text_a: str, text_b: str) -> str:
     return (
         f"=== TEXT A ===\n{text_a}\n\n"
         f"=== TEXT B ===\n{text_b}\n\n"
-        "Compare these two texts. Which one is less complicated? "
+        "Compare these two texts for word-level complexity only. "
         "Provide your judgment as the specified JSON object."
     )
 
@@ -84,7 +86,7 @@ async def judge_complexity(
     text_a, text_b : str
         The two texts to compare.
     model : str
-        Model name (default: gpt-4o-mini).
+        Model name (default: gpt-5-mini).
 
     Returns
     -------
@@ -129,9 +131,10 @@ async def judge_complexity(
     data = json.loads(raw)
 
     return JudgmentResult(
-        less_complicated_text=data["less_complicated_text"],
+        text_A_complexity=float(data["text_A_complexity"]),
+        text_B_complexity=float(data["text_B_complexity"]),
         confidence=float(data["confidence"]),
-        reasons=data["reasons"],
+        reasons=list(data["reasons"]),
     )
 
 
@@ -143,12 +146,16 @@ def display_result(result: JudgmentResult) -> None:
     print("  LLM JUDGE – Text Complexity Comparison")
     print("=" * 60)
 
-    simpler = {
-        "A": "Text A is LESS complicated",
-        "B": "Text B is LESS complicated",
-    }.get(result.less_complicated_text, result.less_complicated_text)
+    if result.text_A_complexity < result.text_B_complexity:
+        verdict = "Text A uses LESS complex words"
+    elif result.text_B_complexity < result.text_A_complexity:
+        verdict = "Text B uses LESS complex words"
+    else:
+        verdict = "Tie (word complexity appears equal)"
 
-    print(f"\n  Verdict   : {simpler}")
+    print(f"\n  Verdict   : {verdict}")
+    print(f"  A score   : {result.text_A_complexity:.3f}")
+    print(f"  B score   : {result.text_B_complexity:.3f}")
     print(f"  Confidence: {result.confidence:.0%}")
 
     print("\n  Reasons:")
