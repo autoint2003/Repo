@@ -19,7 +19,6 @@ import pandas as pd
 from dotenv import load_dotenv
 import os
 import asyncio
-from datetime import datetime
 import nltk
 import spacy
 from scripts.text_simplification import LexicalSimplifier
@@ -161,6 +160,5 @@ _ordered_readability_cols = [c for c in _ordered_readability_cols if c in df.col
 _remaining_cols = [c for c in df.columns if c not in _ordered_readability_cols]
 df = df[_remaining_cols + _ordered_readability_cols]
 
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_file = f'test_{timestamp}.csv'
-df.to_csv(output_file, index=False)
+	
+df.to_csv('test.csv', index=False)
