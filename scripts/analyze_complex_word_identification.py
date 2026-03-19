@@ -95,8 +95,13 @@ class ComplexWordAnalyzer:
         """
         base_dir = Path(__file__).resolve().parent
         whitelist_paths = [
+<<<<<<< HEAD:scripts/analyze_complex_word_identification.py
             base_dir / "data" / "P4wordlist.csv",
             base_dir / "data" / "sgwhitelist.csv",
+=======
+            base_dir / "P4wordlist.csv",
+            base_dir / "sgwhitelist.csv",
+>>>>>>> c2b0327218583b633f405b994dc03b186d1715ee:analyze_complex_word_identification.py
         ]
         exclusion_words = set()
 

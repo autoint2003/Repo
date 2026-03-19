@@ -1,0 +1,8 @@
+stanza
+spacy
+pandas
+python-dotenv
+nltk
+transformers
+wordfreq
+lemminflect
