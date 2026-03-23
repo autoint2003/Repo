@@ -20,11 +20,11 @@ class SyntaxSimplifier:
         in_quote = False
         for sentence in doc.sentences:
             text = sentence.text.strip()
-            if not in_quote and text.startswith(('”', '\u201c', "``", "\u2018")):
+            if not in_quote and any([punct in text for punct in ("“", '\u201c', "\u2018")]):
                 in_quote = True
             if in_quote:
                 result_parts.append(text)
-                if any([punct in text for punct in ("”", '\u201d', "''", "\u2019")]):
+                if any([punct in text for punct in ("”", '\u201d', "\u2019")]):
                     in_quote = False
                 continue
             tree = self._stanza_to_nltk(sentence.constituency)
