@@ -6,12 +6,13 @@ from nltk.tree import Tree
 
 
 class SyntaxSimplifier:
-    def __init__(self, lang: str = "en") -> None:
+    def __init__(self, lang: str = "en", min_conjunct_words: int = 4) -> None:
         self.nlp = stanza.Pipeline(
             lang=lang,
             processors="tokenize,pos,constituency",
             verbose=False,
         )
+        self.min_conjunct_words = min_conjunct_words
 
     def simplify_text(self, document: str) -> str:
         doc = self.nlp(document)
@@ -48,15 +49,50 @@ class SyntaxSimplifier:
             s = self._get_sentence_from_tree(tree)
             return [s[0].upper() + s[1:] if s else s]
 
+        # Skip splitting short coordinations (e.g. "modest and practical") to
+        # avoid creating repetitive sentences where the shared context dominates.
+        if max(len(c.leaves()) for c in conjuncts) < self.min_conjunct_words:
+            s = self._get_sentence_from_tree(tree)
+            return [s[0].upper() + s[1:] if s else s]
+
         s_pos = self._find_nearest_s_ancestor(tree, pos)
         s_tree = tree if (s_pos is None or s_pos == ()) else tree[s_pos]
         rel_pos = pos if s_pos is None else pos[len(s_pos):]
+
+        # Detect if the S context is inside an SBAR (subordinate clause).
+        # If so, non-first conjuncts should be hoisted to the outer S and
+        # attached there, rather than inheriting the inner S's subject.
+        sbar_pos = self._find_sbar_between(tree, s_pos)
 
         results = []
         for index, conjunct in enumerate(conjuncts):
             if index == 0:
                 context_tree = s_tree
                 context_rel_pos = rel_pos
+            elif sbar_pos is not None:
+                # Hoist to the outer S: replace the VP child of the outer S
+                # that contains the SBAR, so the outer subject is used.
+                # Skip subjectless S nodes (participial/infinitival clauses).
+                outer_s_pos = self._find_nearest_s_with_subject(tree, sbar_pos)
+                # Only hoist if there are no intermediate S nodes between the
+                # SBAR and the outer S. An intermediate S (e.g. a participial
+                # clause) means the path to the outer S passes through another
+                # clause, and hoisting would discard shared context (such as a
+                # modal verb) that is needed for the split sentences to be valid.
+                if outer_s_pos is not None and not self._has_intermediate_s(
+                    tree, sbar_pos, outer_s_pos
+                ):
+                    outer_s_tree = tree[outer_s_pos] if outer_s_pos else tree
+                    sbar_in_outer = sbar_pos[len(outer_s_pos):]
+                    context_tree = outer_s_tree
+                    context_rel_pos = (sbar_in_outer[0],)
+                else:
+                    context_tree, num_stripped = self._strip_introductory(s_tree)
+                    if num_stripped > 0 and rel_pos and rel_pos[0] >= num_stripped:
+                        context_rel_pos = (rel_pos[0] - num_stripped,) + rel_pos[1:]
+                    else:
+                        context_tree = s_tree
+                        context_rel_pos = rel_pos
             else:
                 # Drop the introductory clause for non-first conjuncts so it
                 # is not repeated in every generated sentence.
@@ -75,7 +111,7 @@ class SyntaxSimplifier:
 
     def _find_coordination(self, tree: Tree):
         """Return (position, node) of the first phrase-level node with a CC child."""
-        CLAUSE_LABELS = {'ROOT', 'S', 'SBAR', 'SINV'}
+        CLAUSE_LABELS = {'ROOT', 'S', 'SBAR', 'SINV', 'NP', 'NML'}
         for pos in tree.treepositions():
             node = tree[pos]
             if (
@@ -95,6 +131,40 @@ class SyntaxSimplifier:
                 return ancestor_pos
         if isinstance(tree, Tree) and tree.label() == 'S':
             return ()
+        return None
+
+    def _find_nearest_s_with_subject(self, tree: Tree, pos: tuple):
+        """Return the position of the nearest S ancestor of pos that has an NP
+        child (i.e. a finite clause with an explicit subject). Subjectless S
+        nodes (participial/infinitival clauses) are skipped."""
+        for length in range(len(pos) - 1, 0, -1):
+            ancestor_pos = pos[:length]
+            ancestor = tree[ancestor_pos]
+            if (
+                isinstance(ancestor, Tree)
+                and ancestor.label() == 'S'
+                and any(isinstance(c, Tree) and c.label() == 'NP' for c in ancestor)
+            ):
+                return ancestor_pos
+        return None
+
+    def _has_intermediate_s(self, tree: Tree, from_pos: tuple, outer_s_pos: tuple) -> bool:
+        """Return True if any node strictly between outer_s_pos and from_pos is an S."""
+        for length in range(len(outer_s_pos) + 1, len(from_pos)):
+            node = tree[from_pos[:length]]
+            if isinstance(node, Tree) and node.label() == 'S':
+                return True
+        return False
+
+    def _find_sbar_between(self, tree: Tree, s_pos: tuple):
+        """Return the position of the innermost SBAR ancestor of s_pos, or None."""
+        if not s_pos:
+            return None
+        for length in range(len(s_pos) - 1, 0, -1):
+            ancestor_pos = s_pos[:length]
+            ancestor = tree[ancestor_pos]
+            if isinstance(ancestor, Tree) and ancestor.label() == 'SBAR':
+                return ancestor_pos
         return None
 
     def _strip_introductory(self, s_tree: Tree) -> tuple[Tree, int]:
