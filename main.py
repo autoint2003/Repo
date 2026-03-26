@@ -55,33 +55,18 @@ def _safe_analyze_readability(value):
 	except Exception:
 		return None, None
 
+
 # Ensure output columns exist
-if 'simplified_body' not in df.columns:
-	df['simplified_body'] = ''
+if 'syntactic_simplified' not in df.columns:
+	df['syntactic_simplified'] = ''
 
 # Store lexical-only simplification output (before syntactic simplification)
 if 'text_simplified' not in df.columns:
 	df['text_simplified'] = ''
 
-# Drop unused placeholder columns if present (keeps output CSV clean)
-_unused_cols = [
-	'llm_simplified_body',
-	'simplified_body_vs_llm_complexity_result',
-	'llm_syntactic_evaluation',
-]
-df.drop(columns=[c for c in _unused_cols if c in df.columns], inplace=True)
-
 # Add columns to store test results
 if 'text_vs_text_simplified_complexity_result' not in df.columns:
 	df['text_vs_text_simplified_complexity_result'] = None
-
-# Remove legacy tuple columns if present (prefer numeric readability columns)
-_legacy_tuple_cols = [
-	'text_syntactic_evaluation',
-	'text_simplified_syntactic_evaluation',
-	'syntactic_simplified_syntactic_evaluation',
-]
-df.drop(columns=[c for c in _legacy_tuple_cols if c in df.columns], inplace=True)
 
 # Numeric readability columns (preferred for CSV analysis)
 for col in [
@@ -97,36 +82,36 @@ for col in [
 	if col not in df.columns:
 		df[col] = None
 
+
 # Iterate through rows; placeholder for future processing function
 for idx, row in df.iterrows():
-	simplified_body = row.get('simplified_body', '')
+	syntactic_simplified = row.get('syntactic_simplified', '')
 	existing_text_simplified = row.get('text_simplified', '')
 
-	_simplified_body_done = (isinstance(simplified_body, str) and simplified_body.strip()) or (
-		not isinstance(simplified_body, str) and pd.notna(simplified_body)
+	_syntactic_simplified_done = (isinstance(syntactic_simplified, str) and syntactic_simplified.strip()) or (
+		not isinstance(syntactic_simplified, str) and pd.notna(syntactic_simplified)
 	)
 	_text_simplified_done = (
 		isinstance(existing_text_simplified, str) and existing_text_simplified.strip()
 	) or (not isinstance(existing_text_simplified, str) and pd.notna(existing_text_simplified))
 
 	# Only skip rows that already have both outputs populated
-	if _simplified_body_done and _text_simplified_done:
+	if _syntactic_simplified_done and _text_simplified_done:
 		continue
 	text = row['body_content']
 	text_simplified = text_simplifier.simplify_text(text)
-	syntactic_simplified = syntactic_simplifier.simplify_text(text_simplified)
-	df.at[idx, 'simplified_body'] = syntactic_simplified
+	syntactic_simplified_val = syntactic_simplifier.simplify_text(text_simplified)
+	df.at[idx, 'syntactic_simplified'] = syntactic_simplified_val
 	df.at[idx, 'text_simplified'] = text_simplified
 
 	# Basic tests between columns (placeholders for more advanced checks)
-	
 	# Test 1: compare original text vs text_simplified
-	df.at[idx, 'text_vs_text_simplified_complexity_result'] = asyncio.run(judge_complexity(syntactic_simplified, text))
+	df.at[idx, 'text_vs_text_simplified_complexity_result'] = asyncio.run(judge_complexity(syntactic_simplified_val, text))
 	# Test 2 (LLM) removed: llm columns are not used/populated
 	# Syntactic/readability evaluation (store both lexical-only and syntax-simplified)
 	text_grade, text_ease = _safe_analyze_readability(text)
 	text_simplified_grade, text_simplified_ease = _safe_analyze_readability(text_simplified)
-	syntactic_simplified_grade, syntactic_simplified_ease = _safe_analyze_readability(syntactic_simplified)
+	syntactic_simplified_grade, syntactic_simplified_ease = _safe_analyze_readability(syntactic_simplified_val)
 
 	# Preferred numeric columns
 	df.at[idx, 'text_grade_level'] = text_grade
@@ -146,21 +131,25 @@ for idx, row in df.iterrows():
 		)
 
 
+
 # Reorder readability/result columns to the requested sequence while preserving others
 _ordered_readability_cols = [
-	'text_grade_level',
-	'text_simplified_grade_level',
-	'syntactic_simplified_grade_level',
-	'text_reading_ease',
-	'text_simplified_reading_ease',
-	'syntactic_simplified_reading_ease',
-	'syntactic_simplified_minus_text_simplified_grade_level',
-	'syntactic_simplified_minus_text_simplified_reading_ease',
+ 'text_vs_text_simplified_complexity_result',
+ 'text_simplified',
+ 'syntactic_simplified',
+ 'text_grade_level',
+ 'text_simplified_grade_level',
+ 'syntactic_simplified_grade_level',
+ 'text_reading_ease',
+ 'text_simplified_reading_ease',
+ 'syntactic_simplified_reading_ease',
+ 'syntactic_simplified_minus_text_simplified_grade_level',
+ 'syntactic_simplified_minus_text_simplified_reading_ease',
 ]
 _ordered_readability_cols = [c for c in _ordered_readability_cols if c in df.columns]
 _remaining_cols = [c for c in df.columns if c not in _ordered_readability_cols]
 df = df[_remaining_cols + _ordered_readability_cols]
 
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_file = f'test_{timestamp}.csv'
+output_file = f'results/test_{timestamp}.csv'
 df.to_csv(output_file, index=False)

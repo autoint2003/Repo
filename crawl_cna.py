@@ -348,11 +348,20 @@ class CNACrawler:
             
             # Extract publication date - try multiple selectors
             pub_date = None
+            # 1. Try <time> tag
             time_tag = soup.find('time')
             if time_tag:
                 pub_date = time_tag.get('datetime') or time_tag.get_text(strip=True)
-            
-            # If not found, try other date selectors
+
+            # 2. Try div with class 'article-publish' (CNA format)
+            if not pub_date:
+                publish_div = soup.find('div', class_=lambda x: x and 'article-publish' in x)
+                if publish_div:
+                    date_text = publish_div.get_text(strip=True)
+                    if date_text:
+                        pub_date = date_text
+
+            # 3. Try other date selectors
             if not pub_date:
                 date_elements = soup.find_all(['span', 'div'], class_=lambda x: x and 'date' in x.lower() if x else False)
                 for elem in date_elements:
@@ -459,7 +468,7 @@ class CNACrawler:
         print(f"\nCrawling complete! Collected {len(self.articles)} articles.")
         return self.articles
     
-    def save_to_csv(self, filename='cna_articles.csv'):
+    def save_to_csv(self, filename='data/cna_articles.csv'):
         """Save articles to CSV file."""
         if not self.articles:
             print("No articles to save!")
@@ -469,7 +478,7 @@ class CNACrawler:
         df.to_csv(filename, index=False, encoding='utf-8')
         print(f"Saved {len(self.articles)} articles to {filename}")
     
-    def save_to_json(self, filename='cna_articles.json'):
+    def save_to_json(self, filename='data/cna_articles.json'):
         """Save articles to JSON file."""
         if not self.articles:
             print("No articles to save!")
@@ -486,7 +495,7 @@ if __name__ == "__main__":
     
     # Crawl news section - adjust parameters as needed
     articles = crawler.crawl(
-        section='news',      # Options: 'news', 'singapore', 'asia', 'world', 'business', 'sport'
+        section='singapore',      # Options: 'news', 'singapore', 'asia', 'world', 'business', 'sport'
         max_pages=2,         # Number of listing pages to crawl
         max_articles=10      # Maximum number of articles to scrape (None for all)
     )
