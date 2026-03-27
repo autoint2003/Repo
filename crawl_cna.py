@@ -200,7 +200,19 @@ class CNACrawler:
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            
+            # Rather than removing nodes (which may break scraping), mark game
+            # / ad containers and skip paragraphs that are inside them.
+            def is_within_skipped_block(tag):
+                # Skip if inside a game-list or game-tile container
+                if tag.find_parent(class_='game-list'):
+                    return True
+                if tag.find_parent(class_='game-tile'):
+                    return True
+                # Skip if inside an anchor that links to /games/
+                parent_a = tag.find_parent('a')
+                if parent_a and parent_a.get('href') and '/games/' in parent_a.get('href'):
+                    return True
+                return False
             # Extract title
             title = None
             title_tag = soup.find('h1')
@@ -215,13 +227,29 @@ class CNACrawler:
             category_paragraphs = []
             content_paragraphs = []
             
+            # Paragraph-level keywords that identify game/ad blocks to skip
+            game_keywords = [
+                'cna games', 'guess word', 'buzzword', 'mini sudoku',
+                'mini crossword', 'word search', 'show more', 'show less',
+                '/games/'
+            ]
+
             for p in all_paragraphs:
+                # Skip paragraphs that are inside known non-article blocks
+                if is_within_skipped_block(p):
+                    continue
+
                 p_class = p.get('class', [])
                 p_text = p.get_text(separator=' ', strip=True)
-                
+
                 if not p_text:  # Skip empty paragraphs
                     continue
-                    
+
+                # Skip paragraphs that contain game/ad keywords
+                low = p_text.lower()
+                if any(kw in low for kw in game_keywords):
+                    continue
+
                 # Check if it's a category paragraph
                 if any('category' in cls.lower() for cls in p_class):
                     category_paragraphs.append(p_text)
