@@ -15,18 +15,21 @@ Average word syllable count (syllables per word)
 More syllables per word → score goes down (harder to read)
 '''
 
-import pandas as pd
-from dotenv import load_dotenv
-import os
 import asyncio
+import os
 from datetime import datetime
+
 import nltk
+import pandas as pd
 import spacy
+from dotenv import load_dotenv
+
+from scripts.complexity_evaluation import JudgmentResult
+from scripts.complexity_evaluation import judge_complexity
 from scripts.text_simplification import LexicalSimplifier
 from scripts.syntax_simplifier import SyntaxSimplifier
-# from scripts.t5_simplification_summarization import T5TextProcessor
 from scripts.syntactic_evaluation import analyze_readability
-from scripts.complexity_evaluation import judge_complexity
+# from scripts.t5_simplification_summarization import T5TextProcessor
 
 load_dotenv()
 DOCUMENTS = os.getenv('SOURCE_DOC')
@@ -54,6 +57,20 @@ def _safe_analyze_readability(value):
 		return float(grade_level), float(reading_ease)
 	except Exception:
 		return None, None
+
+
+def _safe_judge_complexity(text_a, text_b):
+	if not isinstance(text_a, str) or not text_a.strip():
+		return None
+	if not isinstance(text_b, str) or not text_b.strip():
+		return None
+	try:
+		result = asyncio.run(judge_complexity(text_a, text_b))
+		if isinstance(result, JudgmentResult):
+			return repr(result)
+		return str(result)
+	except Exception as exc:
+		return f"ERROR: {type(exc).__name__}: {exc}"
 
 
 # Ensure output columns exist
@@ -106,7 +123,10 @@ for idx, row in df.iterrows():
 
 	# Basic tests between columns (placeholders for more advanced checks)
 	# Test 1: compare original text vs text_simplified
-	df.at[idx, 'text_vs_text_simplified_complexity_result'] = asyncio.run(judge_complexity(syntactic_simplified_val, text))
+	df.at[idx, 'text_vs_text_simplified_complexity_result'] = _safe_judge_complexity(
+		syntactic_simplified_val,
+		text,
+	)
 	# Test 2 (LLM) removed: llm columns are not used/populated
 	# Syntactic/readability evaluation (store both lexical-only and syntax-simplified)
 	text_grade, text_ease = _safe_analyze_readability(text)
