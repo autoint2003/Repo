@@ -15,6 +15,7 @@ The simplification pipeline currently combines:
 - Syntactic simplification with constituency parsing via Stanza
 - Readability scoring with Flesch-Kincaid Grade Level and Flesch Reading Ease
 - A complexity comparison step using an LLM judge
+- Result visualization with line charts for readability and complexity comparisons
 
 ## Repository structure
 
@@ -37,6 +38,7 @@ Key files:
 - `scripts/syntax_simplifier.py`: syntactic simplifier
 - `scripts/syntactic_evaluation.py`: readability scoring helpers
 - `scripts/complexity_evaluation.py`: LLM-based lexical complexity comparison
+- `scripts/plot_results.py`: generates three line-chart PNGs from a results CSV
 - `docs/`: methodology and implementation notes
 
 ## Data flow
@@ -82,6 +84,16 @@ Typical output columns include:
 - `syntactic_simplified_grade_level`
 - `syntactic_simplified_reading_ease`
 
+### 3. Generate plots from a results CSV
+
+`scripts/plot_results.py` reads a timestamped results CSV and writes three line charts:
+
+- grade level comparison for original, lexical simplification, and syntactic simplification
+- reading ease comparison for original, lexical simplification, and syntactic simplification
+- LLM judge complexity score comparison for `Text A` vs `Text B`
+
+By default, the grade-level and reading-ease plots are normalized so the original article score is `100` for each row.
+
 ## Setup
 
 ### 1. Create and activate a virtual environment
@@ -113,6 +125,7 @@ Notes:
 - `main.py` will attempt to download the spaCy model `en_core_web_sm` if it is not installed
 - `scripts/syntax_simplifier.py` uses `stanza`, which may download models on first run
 - `scripts/complexity_evaluation.py` depends on a package imported as `copilot` and an authenticated Copilot setup
+- `scripts/plot_results.py` uses `matplotlib` with the non-interactive `Agg` backend, so it can render PNGs in headless environments
 
 ## Environment configuration
 
@@ -166,6 +179,32 @@ Several scripts include local demo or test entry points:
 - `python .\scripts\syntax_simplifier.py`
 - `python .\scripts\syntactic_evaluation.py`
 
+### Generate plots for an experiment result
+
+Run the plotting script on a results CSV:
+
+```powershell
+.\.venv\Scripts\python .\scripts\plot_results.py .\results\test_20260405_163659.csv --labels title
+```
+
+Use absolute values instead of normalized values for the first two charts:
+
+```powershell
+.\.venv\Scripts\python .\scripts\plot_results.py .\results\test_20260405_163659.csv --labels title --grade-mode absolute --ease-mode absolute
+```
+
+Generated images are written to:
+
+```text
+results/plots/<results_csv_stem>/
+```
+
+The script currently produces:
+
+- `01_grade_levels.png`
+- `02_reading_ease.png`
+- `03_complexity_scores.png`
+
 ## Expected input format
 
 The simplification pipeline assumes the source CSV contains article rows with at least:
@@ -184,6 +223,9 @@ Source data:
 Experiment outputs:
 
 - `results/test_*.csv`
+- `results/plots/<results_csv_stem>/01_grade_levels.png`
+- `results/plots/<results_csv_stem>/02_reading_ease.png`
+- `results/plots/<results_csv_stem>/03_complexity_scores.png`
 
 Documentation:
 
@@ -194,7 +236,6 @@ Documentation:
 
 ## Limitations
 
-- `requirements.txt` does not currently include every imported package used by the repository
 - `main.py` calls an LLM-based complexity judge, so that step is not fully offline
 - first-run model downloads can be large and slow
 - the lexical simplifier can produce awkward substitutions because it relies on WordNet candidates plus embedding similarity
