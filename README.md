@@ -92,7 +92,7 @@ Typical output columns include:
 - reading ease comparison for original, lexical simplification, and syntactic simplification
 - LLM judge complexity score comparison for `Text A` vs `Text B`
 
-By default, the grade-level and reading-ease plots are normalized so the original article score is `100` for each row.
+The script takes only the CSV path as input. It uses article titles on the x-axis and normalizes the grade-level and reading-ease plots so the original article score is `100` for each row.
 
 ## Setup
 
@@ -184,13 +184,7 @@ Several scripts include local demo or test entry points:
 Run the plotting script on a results CSV:
 
 ```powershell
-.\.venv\Scripts\python .\scripts\plot_results.py .\results\test_20260405_163659.csv --labels title
-```
-
-Use absolute values instead of normalized values for the first two charts:
-
-```powershell
-.\.venv\Scripts\python .\scripts\plot_results.py .\results\test_20260405_163659.csv --labels title --grade-mode absolute --ease-mode absolute
+.\.venv\Scripts\python .\scripts\plot_results.py .\results\test_20260405_163659.csv
 ```
 
 Generated images are written to:

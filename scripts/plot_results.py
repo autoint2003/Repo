@@ -53,29 +53,6 @@ def parse_args() -> argparse.Namespace:
         description="Create grade/readability/complexity plots from a results CSV."
     )
     parser.add_argument("csv_path", type=Path, help="Path to a results CSV file.")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        help="Directory to save generated plots. Defaults to results/plots/<csv_stem>/",
-    )
-    parser.add_argument(
-        "--labels",
-        choices=["index", "title"],
-        default="index",
-        help="How to label articles on the x-axis.",
-    )
-    parser.add_argument(
-        "--grade-mode",
-        choices=["normalized", "absolute"],
-        default="normalized",
-        help="Plot grade as percent change from original, or absolute scores.",
-    )
-    parser.add_argument(
-        "--ease-mode",
-        choices=["normalized", "absolute"],
-        default="normalized",
-        help="Plot reading ease as percent change from original, or absolute scores.",
-    )
     return parser.parse_args()
 
 
@@ -203,58 +180,36 @@ def main() -> int:
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
 
-    output_dir = (
-        args.output_dir.resolve()
-        if args.output_dir
-        else csv_path.parent / "plots" / csv_path.stem
-    )
+    output_dir = csv_path.parent / "plots" / csv_path.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(csv_path)
     prepared = prepare_metrics(df)
-    labels = article_labels(prepared, args.labels)
+    labels = article_labels(prepared, "title")
 
-    if args.grade_mode == "normalized":
-        grade_series = {
-            "Original": pd.Series(100.0, index=prepared.index),
-            "Lexical Simplified": safe_relative_index(
-                prepared["grade_lexical"], prepared["grade_original"]
-            ),
-            "Syntactic Simplified": safe_relative_index(
-                prepared["grade_syntactic"], prepared["grade_original"]
-            ),
-        }
-        grade_title = "Normalized Grade Level per Article"
-        grade_ylabel = "Normalized Grade Level (Original = 100)"
-    else:
-        grade_series = {
-            "Original": prepared["grade_original"],
-            "Lexical Simplified": prepared["grade_lexical"],
-            "Syntactic Simplified": prepared["grade_syntactic"],
-        }
-        grade_title = "Grade Level per Article"
-        grade_ylabel = "Flesch-Kincaid Grade Level"
+    grade_series = {
+        "Original": pd.Series(100.0, index=prepared.index),
+        "Lexical Simplified": safe_relative_index(
+            prepared["grade_lexical"], prepared["grade_original"]
+        ),
+        "Syntactic Simplified": safe_relative_index(
+            prepared["grade_syntactic"], prepared["grade_original"]
+        ),
+    }
+    grade_title = "Normalized Grade Level per Article"
+    grade_ylabel = "Normalized Grade Level (Original = 100)"
 
-    if args.ease_mode == "normalized":
-        ease_series = {
-            "Original": pd.Series(100.0, index=prepared.index),
-            "Lexical Simplified": safe_relative_index(
-                prepared["ease_lexical"], prepared["ease_original"]
-            ),
-            "Syntactic Simplified": safe_relative_index(
-                prepared["ease_syntactic"], prepared["ease_original"]
-            ),
-        }
-        ease_title = "Normalized Reading Ease per Article"
-        ease_ylabel = "Normalized Reading Ease (Original = 100)"
-    else:
-        ease_series = {
-            "Original": prepared["ease_original"],
-            "Lexical Simplified": prepared["ease_lexical"],
-            "Syntactic Simplified": prepared["ease_syntactic"],
-        }
-        ease_title = "Reading Ease per Article"
-        ease_ylabel = "Flesch Reading Ease"
+    ease_series = {
+        "Original": pd.Series(100.0, index=prepared.index),
+        "Lexical Simplified": safe_relative_index(
+            prepared["ease_lexical"], prepared["ease_original"]
+        ),
+        "Syntactic Simplified": safe_relative_index(
+            prepared["ease_syntactic"], prepared["ease_original"]
+        ),
+    }
+    ease_title = "Normalized Reading Ease per Article"
+    ease_ylabel = "Normalized Reading Ease (Original = 100)"
 
     complexity_series = {
         "Text A": prepared["complexity_text_a"],
